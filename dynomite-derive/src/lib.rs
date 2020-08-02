@@ -476,6 +476,7 @@ fn get_item_impls(
 
     Ok(quote! {
         #item_trait
+        /// #name Key
         #key_struct
     })
 }
