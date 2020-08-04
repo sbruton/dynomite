@@ -12,6 +12,7 @@ use rusoto_core_rustls::RusotoError;
 use std::{collections::HashMap, pin::Pin};
 
 type DynomiteStream<I, E> = Pin<Box<dyn Stream<Item = Result<I, RusotoError<E>>> + Send>>;
+type DynomiteUserStream<I, E> = Pin<Box<dyn Stream<Item = Result<I, E>> + Send>>;
 
 /// Extension methods for DynamoDb client types
 ///
@@ -39,10 +40,10 @@ pub trait DynamoDbExt {
     ) -> DynomiteStream<HashMap<String, AttributeValue>, QueryError>;
 
     /// An auto-paginating `Stream` oriented version of `scan`
-    fn scan_pages(
+    fn scan_pages<E: From<RusotoError<ScanError>> + Sized + Sync + Send>(
         self,
         input: ScanInput,
-    ) -> DynomiteStream<HashMap<String, AttributeValue>, ScanError>;
+    ) -> DynomiteUserStream<HashMap<String, AttributeValue>, E>;
 }
 
 impl<D> DynamoDbExt for D
@@ -185,10 +186,13 @@ where
         )
     }
 
-    fn scan_pages(
+    fn scan_pages<E>(
         self,
         input: ScanInput,
-    ) -> DynomiteStream<HashMap<String, AttributeValue>, ScanError> {
+    ) -> DynomiteUserStream<HashMap<String, AttributeValue>, E>
+    where
+        E: From<RusotoError<ScanError>> + Sized + Sync + Send,
+    {
         #[allow(clippy::large_enum_variant)]
         enum PageState {
             Next(Option<HashMap<String, AttributeValue>>, ScanInput),
@@ -202,7 +206,7 @@ where
                     async move {
                         let (exclusive_start_key, input) = match state {
                             PageState::Next(start, input) => (start, input),
-                            PageState::End => return Ok(None) as Result<_, RusotoError<ScanError>>,
+                            PageState::End => return Ok(None) as Result<_, E>,
                         };
                         let resp = clone
                             .scan(ScanInput {
